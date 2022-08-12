@@ -1,6 +1,6 @@
 # Package
 
-version       = "0.1.0"
+version       = "0.3.0"
 author        = "Thiago Navarro"
 description   = "A CLI tool to check files (and registry in Windows)"
 license       = "MIT"
