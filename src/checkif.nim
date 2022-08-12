@@ -1,11 +1,17 @@
 from std/os import fileExists, dirExists
-from std/strutils import `%`
+from std/strutils import `%`, contains
 
 type
   CheckKind* {.pure.} = enum
     file, dir
   CheckCondition* {.pure.} = enum
-    exists
+    exists, contentHave, contentIs
+
+proc tryReadFile(file: string): string =
+  try:
+    readFile file
+  except IOError:
+    ""
 
 
 proc cli_checkif(
@@ -14,7 +20,8 @@ proc cli_checkif(
   paths: seq[string];
   invert = false;
   min = 0;
-  print = false
+  print = false;
+  str = ""
 ): int =
   ## Check if expression is meet
   proc getPrintText: string =
@@ -26,13 +33,19 @@ proc cli_checkif(
     if invert: result.add " not"
     result.add(
       case condition:
-      of exists: " exists")
+      of exists: " exists"
+      of contentHave: " content have"
+      of contentIs: " content is")
     result.add ": $2"
 
   result = 1
   if paths.len == 0:
     echo "Provide paths"
     return
+
+  if condition in {contentHave, contentIs}:
+    if str.len == 0:
+      quit "Provide the verification string"
   
   if print:
     echo "Configs:"
@@ -42,16 +55,23 @@ proc cli_checkif(
     echo ""
 
   var printText = getPrintText()
-  proc check(path: string): bool =
+  proc check(path: string; str = ""): bool =
     case condition:
     of exists:
       case kind:
       of file: fileExists path
       of dir: dirExists path
-
+    of contentHave:
+      case kind:
+      of file: str in path.tryReadFile
+      else: raise newException(ValueError, "Cannot check if dir content have a string")
+    of contentIs:
+      case kind:
+      of file: str == path.tryReadFile
+      else: raise newException(ValueError, "Cannot check if dir content is a string")
   var meet = 0
   for path in paths:
-    let res = check path
+    let res = path.check str
     if print:
       echo printText % [path, $res]
     if res:
