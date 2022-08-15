@@ -1,11 +1,12 @@
-from std/os import fileExists, dirExists
-from std/strutils import `%`, contains
+{.experimental: "codeReordering".}
+from std/os import fileExists, dirExists, execShellCmd
+from std/strutils import `%`, contains, toLowerAscii
 
 type
-  CheckKind* {.pure.} = enum
-    file, dir
-  CheckCondition* {.pure.} = enum
-    exists, contentHave, contentIs
+  FileCond* {.pure.} = enum
+    exists, dataHas, dataIs
+  DirCond* {.pure.} = enum
+    exists
 
 proc tryReadFile(file: string): string =
   try:
@@ -14,70 +15,77 @@ proc tryReadFile(file: string): string =
     ""
 
 
-proc cli_checkif(
-  kind: CheckKind;
-  condition: CheckCondition;
+proc checkFile(
+  condition: FileCond;
   paths: seq[string];
   invert = false;
   min = 0;
-  print = false;
-  str = ""
+  str = "";
+  caseInsensitive = false;
+  then = "";
+  `else` = ""
 ): int =
-  ## Check if expression is meet
-  proc getPrintText: string =
-    result =
-      case kind:
-      of file: "File \"$1\""
-      of dir: "Directory \"$1\""
+  ## Check if expression is meet in a file
+  ## 
+  ## If `then` or `else` was provided, the return code will be of the command
+  proc check(path: string; str = ""): bool =
+    proc txt(s: string): string =
+      if caseInsensitive: s.toLowerAscii
+      else: s
+    case condition:
+    of FileCond.exists:
+      fileExists path
+    of FileCond.dataHas:
+      str.txt in path.tryReadFile.txt
+    of FileCond.dataIs:
+      str.txt == path.tryReadFile.txt
 
-    if invert: result.add " not"
-    result.add(
-      case condition:
-      of exists: " exists"
-      of contentHave: " content have"
-      of contentIs: " content is")
-    result.add ": $2"
+  checkCondition()
 
-  result = 1
-  if paths.len == 0:
-    echo "Provide paths"
-    return
+proc `not`(x: int): int =
+  if x == 0: 1 else: 0
 
-  if condition in {contentHave, contentIs}:
-    if str.len == 0:
-      quit "Provide the verification string"
-  
-  if print:
-    echo "Configs:"
-    if min > 0: echo "  Minimum succeeds: ", min
-    else: echo "  All must be true"
-    if invert: echo "  The result will be inverted"
-    echo ""
-
-  var printText = getPrintText()
+proc checkDir(
+  condition: DirCond;
+  paths: seq[string];
+  invert = false;
+  min = 0;
+  then = "";
+  `else` = ""
+): int =
+  ## Check if expression is meet in a directory
+  ## 
+  ## If `then` or `else` was provided, the return code will be of the command
   proc check(path: string; str = ""): bool =
     case condition:
-    of exists:
-      case kind:
-      of file: fileExists path
-      of dir: dirExists path
-    of contentHave:
-      case kind:
-      of file: str in path.tryReadFile
-      else: raise newException(ValueError, "Cannot check if dir content have a string")
-    of contentIs:
-      case kind:
-      of file: str == path.tryReadFile
-      else: raise newException(ValueError, "Cannot check if dir content is a string")
+    of DirCond.exists:
+      dirExists path
+
+  checkCondition()
+
+template checkCondition: untyped {.dirty.} =
+  result = 1
+
+  if paths.len == 0:
+    quit "Provide the paths", 64
+
+  when condition is FileCond:
+    if condition in {dataHas, dataIs}:
+      if str.len == 0:
+        quit "Provide the text to verify", 64
+  
+  when condition is DirCond:
+    const str = ""
+
   var meet = 0
   for path in paths:
     let res = path.check str
-    if print:
-      echo printText % [path, $res]
     if res:
       inc meet
 
   block:
+    echo meet
+    echo paths.len
     if min > 0:
       if meet < min:
         break
@@ -87,24 +95,92 @@ proc cli_checkif(
     result = 0
 
   if invert:
-    if result == 0:
-      result = 1
-    else:
-      result = 0
+    result = not result
 
-template checkif*(args: varargs[untyped]): untyped =
-  cli_checkif(args) == 0
+  if result == 0:
+    if then.len > 0:
+      result = execShellCmd then
+  else:
+    if `else`.len > 0:
+      result =  execShellCmd `else`
+
+proc checkCommand(
+  commands: seq[string];
+  then = "";
+  `else` = "";
+  stopOnError = true
+): int =
+  ## Run the `then` if `cmd` runs ok, else runs `else`
+  result = 0
+  for command in commands:
+    let res = execShellCmd command
+    if res != 0:
+      result = res
+      if stopOnError:
+        break
+
+  if result == 0:
+    if then.len > 0:
+      result = execShellCmd then
+  else:
+    if `else`.len > 0:
+      result = execShellCmd `else`
 
 when isMainModule:
   import pkg/cligen
-  dispatch(
-    cli_checkif,
-    cmdName = "checkif",
-    short = {
-      "invert": 'n'
-    },
-    help = {
-      "min": "Minimum succeeded checks",
-      "invert": "Invert result",
-    }
+  from std/strutils import join
+  proc condOpts(xs: typedesc[enum]): string =
+    var res: seq[string]
+    for x in xs:
+      res.add $x
+    result = res.join " or "
+  const
+    fileConds = condOpts FileCond
+    dirConds = condOpts DirCond
+  dispatchMulti(
+    [
+      checkFile,
+      cmdName = "file",
+      short = {
+        "invert": 'n',
+        "caseInsensitive": 'i',
+      },
+      
+      help = {
+        "condition": "The file check condition. Can be one of: " & fileConds,
+        "paths": "The files to check, can be any quantity",
+        "invert": "Invert result",
+        "min": "Minimum succeeded checks",
+        "str": "The text to be searched",
+        "then": "The command to be run on success",
+        "else": "The command to be run on error",
+        "caseInsensitive": "Ignore uppercase and lowercase",
+      }
+    ],
+    [
+      checkDir,
+      cmdName = "dir",
+      short = {
+        "invert": 'n',
+      },
+      help = {
+        "condition": "The dir check condition. Can be one of: " & dirConds,
+        "paths": "The files to check, can be any quantity",
+        "invert": "Invert result",
+        "min": "Minimum succeeded checks",
+        "then": "The command to be run on success",
+        "else": "The command to be run on error",
+      }
+    ],
+    [
+      checkCommand,
+      cmdName = "command",
+      short = {
+      },
+      help = {
+        "then": "The command to be run on success",
+        "else": "The command to be run on error",
+        "stopOnError": "If some error occur in `commands` it will stop",
+      }
+    ],
   )

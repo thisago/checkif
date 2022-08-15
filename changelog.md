@@ -1,5 +1,21 @@
 # Changelog
 
+## Version 1.0.0 (Aug 15, 2022)
+
+Complete rewrite
+
+- Renamed the condition `contentHave` to `dataHas`
+- Renamed the condition `contentIs` to `dataIs`
+- Added
+  - `checkif file` to check files
+  - `checkif dir` to check directories
+  - `checkif command` to check commands
+- Added to all functions `then` and `else` to run a command if fails or succeeds
+
+And much more
+
+---
+
 ## Version 0.3.0 (Aug 12, 2022)
 
 - Added file content checking
