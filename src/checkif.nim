@@ -1,6 +1,8 @@
 {.experimental: "codeReordering".}
-from std/os import fileExists, dirExists, execShellCmd
-from std/strutils import `%`, contains, toLowerAscii
+from std/os import fileExists, dirExists
+from std/strutils import `%`, contains, toLowerAscii, join
+from std/osproc import close, startProcess, poDaemon, poStdErrToStdOut,
+                       peekExitCode, readLines, poUsePath, poEvalCommand
 
 type
   FileCond* {.pure.} = enum
@@ -14,6 +16,20 @@ proc tryReadFile(file: string): string =
   except IOError:
     ""
 
+proc execCmd(cmd: string; headless: bool): int =
+  ## Executes the command
+  result = 1
+  var opts = {poStdErrToStdOut, poUsePath, poEvalCommand}
+  if headless: opts = opts + {poDaemon}
+  try:
+    let
+      p = startProcess(cmd, options = opts)
+      res = readLines p
+    echo res[0].join "\t"
+    result = res[1]
+    close p
+  except OSError:
+    echo getCurrentExceptionMsg()
 
 proc checkFile(
   condition: FileCond;
@@ -23,7 +39,8 @@ proc checkFile(
   str = "";
   caseInsensitive = false;
   then = "";
-  `else` = ""
+  `else` = "";
+  headless = false
 ): int =
   ## Check if expression is meet in a file
   ## 
@@ -51,7 +68,8 @@ proc checkDir(
   invert = false;
   min = 0;
   then = "";
-  `else` = ""
+  `else` = "";
+  headless = false
 ): int =
   ## Check if expression is meet in a directory
   ## 
@@ -99,21 +117,26 @@ template checkCondition: untyped {.dirty.} =
 
   if result == 0:
     if then.len > 0:
-      result = execShellCmd then
+      result = execCmd(then, headless)
   else:
     if `else`.len > 0:
-      result =  execShellCmd `else`
+      result = execCmd(`else`, headless)
 
 proc checkCommand(
   commands: seq[string];
   then = "";
   `else` = "";
-  stopOnError = true
+  stopOnError = true;
+  headless = false
 ): int =
   ## Run the `then` if `cmd` runs ok, else runs `else`
   result = 0
+
+  if commands.len == 0:
+    quit "Provide the commands", 64
+
   for command in commands:
-    let res = execShellCmd command
+    let res = execCmd(command, headless)
     if res != 0:
       result = res
       if stopOnError:
@@ -121,10 +144,10 @@ proc checkCommand(
 
   if result == 0:
     if then.len > 0:
-      result = execShellCmd then
+      result = execCmd(then, headless)
   else:
     if `else`.len > 0:
-      result = execShellCmd `else`
+      result = execCmd(`else`, headless)
 
 when isMainModule:
   import pkg/cligen
@@ -137,6 +160,19 @@ when isMainModule:
   const
     fileConds = condOpts FileCond
     dirConds = condOpts DirCond
+
+  const
+    help_condition1 = "The "
+    help_condition2 = " check condition. Can be one of: "
+    help_paths = "The files to check, can be any quantity"
+    help_invert = "Invert result"
+    help_min = "Minimum succeeded checks"
+    help_str = "The text to be searched"
+    help_then = "The command to be run on success"
+    help_else = "The command to be run on error"
+    help_caseInsensitive = "Ignore uppercase and lowercase"
+    help_stopOnError = "If some error occur in `commands` it will stop"
+    help_headless = "If some error occur in `commands` it will stop"
   dispatchMulti(
     [
       checkFile,
@@ -144,17 +180,19 @@ when isMainModule:
       short = {
         "invert": 'n',
         "caseInsensitive": 'i',
+        "headless": 'l',
       },
       
       help = {
-        "condition": "The file check condition. Can be one of: " & fileConds,
-        "paths": "The files to check, can be any quantity",
-        "invert": "Invert result",
-        "min": "Minimum succeeded checks",
-        "str": "The text to be searched",
-        "then": "The command to be run on success",
-        "else": "The command to be run on error",
-        "caseInsensitive": "Ignore uppercase and lowercase",
+        "condition": help_condition1 & "file" & help_condition2 & fileConds,
+        "paths": help_paths,
+        "invert": help_invert,
+        "min": help_min,
+        "str": help_str,
+        "then": help_then,
+        "else": help_else,
+        "caseInsensitive": help_caseInsensitive,
+        "headless": help_headless,
       }
     ],
     [
@@ -164,12 +202,13 @@ when isMainModule:
         "invert": 'n',
       },
       help = {
-        "condition": "The dir check condition. Can be one of: " & dirConds,
-        "paths": "The files to check, can be any quantity",
-        "invert": "Invert result",
-        "min": "Minimum succeeded checks",
-        "then": "The command to be run on success",
-        "else": "The command to be run on error",
+        "condition": help_condition1 & "dir" & help_condition2 & dirConds,
+        "paths": help_paths,
+        "invert": help_invert,
+        "min": help_min,
+        "then": help_then,
+        "else": help_else,
+        "headless": help_headless,
       }
     ],
     [
@@ -178,9 +217,10 @@ when isMainModule:
       short = {
       },
       help = {
-        "then": "The command to be run on success",
-        "else": "The command to be run on error",
-        "stopOnError": "If some error occur in `commands` it will stop",
+        "then": help_then,
+        "else": help_else,
+        "stopOnError": help_stopOnError,
+        "headless": help_headless,
       }
     ],
   )

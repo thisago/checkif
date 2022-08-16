@@ -1,5 +1,11 @@
 # Changelog
 
+## Version 1.1.0 (Aug 16, 2022)
+
+- Added headless option to run a command without GUI
+
+---
+
 ## Version 1.0.0 (Aug 15, 2022)
 
 Complete rewrite
