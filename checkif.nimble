@@ -1,6 +1,6 @@
 # Package
 
-version       = "1.1.0"
+version       = "1.2.0"
 author        = "Thiago Navarro"
 description   = "A CLI tool to check files (and registry in Windows)"
 license       = "MIT"
@@ -13,6 +13,8 @@ binDir = "build"
 
 requires "nim >= 1.6.4"
 requires "cligen"
+
+requires "util"
 
 
 from std/os import `/`

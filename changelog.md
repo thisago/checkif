@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 1.2.0 (Sep 6, 2022)
+
+- Added number checking for files
+- Removed debug echo
+
+---
+
 ## Version 1.1.0 (Aug 16, 2022)
 
 - Added headless option to run a command without GUI
